@@ -101,17 +101,35 @@ const CARD_ART = {
 };
 const TYPE_LABEL = { attack: '공격', skill: '스킬', power: '파워', status: '상태', curse: '저주' };
 
+// 카드 키워드 용어 사전 (설명 안 키워드 호버 툴팁)
+const KEYWORD_TIPS = {
+  '취약': '공격으로 받는 피해가 50% 증가합니다.',
+  '약화': '공격으로 주는 피해가 25% 감소합니다.',
+  '손상': '카드로 얻는 방어도가 25% 감소합니다.',
+  '소멸': '사용하면 이번 전투 동안 제거됩니다.',
+  '휘발성': '턴 종료 시 손에 있으면 소멸합니다.',
+  '힘': '공격 피해가 수치만큼 증가합니다.',
+  '민첩': '카드로 얻는 방어도가 수치만큼 증가합니다.',
+  '방어도': '공격 피해를 대신 흡수합니다. 턴 시작 시 사라집니다.',
+};
+
 export function cardEl(card, c = null, opts = {}) {
   const d = cardData(card);
   const e = el('div', `card type-${d.type} rarity-${d.rarity}${card.upgraded ? ' upgraded' : ''}${opts.small ? ' small' : ''}`);
   e.dataset.uid = card.uid;
   const cost = d.unplayable ? null : d.cost;
+  // 설명은 반드시 단일 <span>으로 감싼다 — flex 컨테이너에 텍스트+태그가 섞이면
+  // 조각마다 flex 아이템이 되어 한국어가 세로로 깨진다.
   e.innerHTML = `
     ${cost !== null ? `<div class="card-cost">${cost === 'X' ? 'X' : cost}</div>` : ''}
     <div class="card-name">${d.displayName}</div>
     <div class="card-art"><span>${CARD_ART[d.id] || '✨'}</span></div>
     <div class="card-type">${TYPE_LABEL[d.type]}</div>
-    <div class="card-desc">${renderCardText(card, c)}</div>`;
+    <div class="card-desc"><span class="desc-text">${renderCardText(card, c)}</span></div>`;
+  for (const kw of e.querySelectorAll('.card-desc .kw')) {
+    const tip = KEYWORD_TIPS[kw.textContent];
+    if (tip) kw.dataset.tip = `<b class="tip-title">${kw.textContent}</b>${tip}`;
+  }
   if (c && cost !== null) {
     const real = cardCost(c, card);
     const costEl = e.querySelector('.card-cost');
@@ -194,14 +212,19 @@ export function overlay(title, contentEl, { onClose, closable = true } = {}) {
   const panel = el('div', 'overlay-panel');
   if (title) panel.appendChild(el('h2', 'overlay-title', title));
   panel.appendChild(contentEl);
+  const doClose = () => { ov.remove(); document.removeEventListener('keydown', escClose); onClose && onClose(); };
+  const escClose = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); doClose(); } };
   if (closable) {
     const x = el('button', 'overlay-close', '✕');
-    x.onclick = () => { ov.remove(); onClose && onClose(); };
+    x.onclick = doClose;
     panel.appendChild(x);
+    // ESC 또는 패널 바깥(배경) 클릭으로 닫기
+    document.addEventListener('keydown', escClose);
+    ov.addEventListener('pointerdown', (ev) => { if (ev.target === ov) { ev.stopPropagation(); doClose(); } });
   }
   ov.appendChild(panel);
   $('#stage').appendChild(ov);
-  return { close: () => ov.remove(), root: ov };
+  return { close: doClose, root: ov };
 }
 
 // card grid (deck view / pick a card)

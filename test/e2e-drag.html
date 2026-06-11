@@ -39,7 +39,7 @@
         clientX: pt.x, clientY: pt.y, ...extra,
       }));
     };
-    const key = (k) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    const key = (k, code) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: code || '', bubbles: true }));
     const q = (sel) => document.querySelector(sel);
     const qa = (sel) => [...document.querySelectorAll(sel)];
 
@@ -88,12 +88,28 @@
       pass(energy() === 3, 'energy starts at 3');
       pass(qa('.unit.enemy').length === 2, 'two enemies rendered');
       pass(qa('.hand .card .card-key').length === 5, 'number badges shown');
+      // 설명 텍스트는 단일 래퍼(<span class=desc-text>)여야 세로 깨짐이 없다
+      pass(qa('.hand .card .card-desc > .desc-text').length === 5, 'card descriptions wrapped (no vertical break)');
+      pass(qa('.hand .card .card-desc .kw[data-tip]').length >= 1, 'keyword tooltips attached');
+      pass(!!q('.speed-btn'), 'speed toggle button present');
 
-      // ① 공격 카드를 적에게 드래그 앤 드랍
+      // ① 공격 카드를 적에게 드래그 앤 드랍 (호버 시 예상 피해 표시 확인)
       let strike = qa('.hand .card.type-attack')[0];
       const enemy0 = qa('.unit.enemy')[0];
       const hpBefore = enemyHp(0);
-      await dragTo(strike, center(enemy0.querySelector('.sprite')));
+      {
+        const from = center(strike);
+        const dest = center(enemy0.querySelector('.sprite'));
+        fire(strike, 'pointerdown', from);
+        await sleep(30);
+        for (let i = 1; i <= 6; i++) {
+          fire(document, 'pointermove', { x: from.x + (dest.x - from.x) * i / 6, y: from.y + (dest.y - from.y) * i / 6 });
+          await sleep(16);
+        }
+        pass(!!q('.dmg-preview') && q('.dmg-preview').textContent === '6', 'damage preview shown on hover (6)');
+        fire(document, 'pointerup', dest);
+        await sleep(900);
+      }
       pass(enemyHp(0) === hpBefore - 6, `attack drag-drop on enemy deals 6 (${hpBefore}→${enemyHp(0)})`);
       pass(energy() === 2, 'energy spent (3→2)');
       pass(handCount() === 4, 'card left hand');
@@ -145,11 +161,19 @@
       await sleep(300);
       pass(handCount() === handBefore5, 'click-in-place cancels (card stays)');
 
-      // ⑥ E 키로 턴 종료 → 적 행동 → 내 턴 (에너지 리필)
-      key('e');
+      // ⑥ E 키로 턴 종료 — 한글 IME 상태(key='ㄷ', code='KeyE')로 시뮬레이션
+      key('ㄷ', 'KeyE');
       await sleep(6000);
-      pass(energy() === 3, 'after enemy turn, energy refilled to 3');
+      pass(energy() === 3, 'E key (Korean IME) ends turn — energy refilled to 3');
       pass(handCount() === 5, 'new hand drawn (5 cards)');
+
+      // ⑦ 더미 오버레이가 ESC로 닫히는지
+      q('.pile-btn.discard').click();
+      await sleep(200);
+      pass(!!q('.overlay'), 'discard pile overlay opens');
+      key('Escape');
+      await sleep(200);
+      pass(!q('.overlay'), 'overlay closes with ESC');
 
       report.push('E2E_DONE');
       flush();

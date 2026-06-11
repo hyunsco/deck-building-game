@@ -38,7 +38,7 @@
     const rng = mulberry32(7);
     const run = {
       act: 2, hp: 52, maxHp: 87, gold: 214,
-      deck: [...starterDeck(), makeCard('bludgeon', true), makeCard('whirlwind'), makeCard('demonForm')],
+      deck: [...starterDeck(), makeCard('perfectedStrike'), makeCard('armaments'), makeCard('offering'), makeCard('demonForm', true)],
       relics: ['burningBlood', 'anchor', 'penNib', 'kunai', 'strawberry'],
       potions: ['firePotion', 'bloodPotion', null],
       map: generateMap(mulberry32(5)),

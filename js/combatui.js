@@ -4,7 +4,7 @@
 //  · 숫자키 1~9, 0: 손패 순서대로 카드를 집음 → 마우스로 옮겨 클릭으로 드랍
 import {
   createCombat, startCombat, playCard, endPlayerTurn, enemyTurnStep, finishEnemyPhase,
-  usePotionInCombat, canPlay, attackDamage, cardCost,
+  usePotionInCombat, canPlay, attackDamage, previewValues,
 } from './combat.js';
 import { SPRITES, INTENT_ICONS } from './art.js';
 import {
@@ -15,6 +15,7 @@ import { POTIONS } from './data/potions.js';
 import { cardData } from './data/cards.js';
 
 const DROP_Y = 640; // 이 높이(스테이지 좌표)보다 위에서 드랍하면 "꺼내서 사용"
+const SPEED_KEY = 'spire-ascent-speed';
 
 export function runCombat(run, enemyIds, rng, kind = 'monster') {
   return new Promise((resolve) => {
@@ -40,7 +41,8 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
         </div>
         <div class="hand"></div>
         <div class="hud-right">
-          <button class="end-turn">턴 종료</button>
+          <button class="end-turn"><span>턴 종료</span><kbd>E</kbd></button>
+          <button class="speed-btn" data-tip="<b class='tip-title'>전투 속도</b>적 턴과 연출 속도를 조절합니다."></button>
           <button class="pile-btn exhaust" data-tip="<b class='tip-title'>소멸된 카드</b>이번 전투에서 제거된 카드입니다.">✦<b>0</b></button>
           <button class="pile-btn discard" data-tip="<b class='tip-title'>버린 카드 더미</b>뽑을 카드가 없으면 섞어서 다시 사용합니다.">🂠<b>0</b></button>
         </div>
@@ -59,6 +61,8 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     let busy = false;
     let finished = false;
     let lastMouse = { x: 960, y: 700 };
+    let speed = Number(localStorage.getItem(SPEED_KEY)) || 1; // 1=보통, 2=빠름
+    const wait = (ms) => sleep(ms / speed);
 
     // ============ rendering ============
     const INTENT_TIP = {
@@ -165,7 +169,14 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       root.querySelector('.pile-btn.discard b').textContent = c.discardPile.length;
       root.querySelector('.pile-btn.exhaust b').textContent = c.exhaustPile.length;
       endBtn.disabled = busy || c.phase !== 'player' || !!c.over;
-      endBtn.textContent = c.phase === 'player' ? '턴 종료' : '적의 턴…';
+      endBtn.querySelector('span').textContent = c.phase === 'player' ? '턴 종료' : '적의 턴…';
+      const spdBtn = root.querySelector('.speed-btn');
+      spdBtn.textContent = speed === 1 ? '▶ 보통 속도' : '⏩ 빠른 속도';
+      spdBtn.onclick = () => {
+        speed = speed === 1 ? 2 : 1;
+        try { localStorage.setItem(SPEED_KEY, String(speed)); } catch (e) { /* ignore */ }
+        refreshHud();
+      };
       root.querySelector('.pile-btn.draw').onclick = () => cardGridOverlay('뽑을 카드 더미 (순서 무작위)', [...c.drawPile].sort((a, b) => a.id.localeCompare(b.id)), { c });
       root.querySelector('.pile-btn.discard').onclick = () => cardGridOverlay('버린 카드 더미', [...c.discardPile], { c });
       root.querySelector('.pile-btn.exhaust').onclick = () => cardGridOverlay('소멸된 카드', [...c.exhaustPile], { c });
@@ -193,21 +204,21 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
             floatText(pos.cx + (Math.random() * 60 - 30), pos.y + 40, String(ev.amt), ev.blocked ? 'f-blocked' : 'f-dmg');
             if (ev.who === 'p' && !ev.blocked && ev.amt >= 12) shakeStage(true);
             else if (!ev.blocked && ev.amt >= 15) shakeStage(false);
-            await sleep(slow ? 220 : 120);
+            await wait(slow ? 220 : 120);
             break;
           }
           case 'blockGain':
             floatText(pos.cx, pos.y + 60, '🛡 ' + ev.amt, 'f-block');
-            await sleep(slow ? 160 : 60);
+            await wait(slow ? 160 : 60);
             break;
           case 'heal':
             floatText(pos.cx, pos.y + 40, '+' + ev.amt, 'f-heal');
-            await sleep(slow ? 160 : 60);
+            await wait(slow ? 160 : 60);
             break;
           case 'status': {
             const name = STATUS_INFO[ev.k]?.name || ev.k;
             floatText(pos.cx, pos.y + 20, `${name} ${ev.n > 0 ? '+' : ''}${ev.n}`, ev.n > 0 ? 'f-status' : 'f-status-neg');
-            await sleep(slow ? 180 : 80);
+            await wait(slow ? 180 : 80);
             break;
           }
           case 'enemyMove':
@@ -216,27 +227,27 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
               unit.classList.add('lunge');
               setTimeout(() => unit.classList.remove('lunge'), 400);
             }
-            await sleep(360);
+            await wait(360);
             break;
           case 'die':
             if (unit) unit.classList.add('dead');
-            await sleep(slow ? 300 : 180);
+            await wait(slow ? 300 : 180);
             break;
           case 'escape':
             floatText(pos.cx, pos.y, '소멸…', 'f-move');
-            await sleep(300);
+            await wait(300);
             break;
           case 'split':
             floatText(pos.cx, pos.y, '분열!', 'f-move');
-            await sleep(300);
+            await wait(300);
             break;
           case 'spawn':
             floatText(pos.cx, pos.y + 30, '출현!', 'f-move');
-            await sleep(slow ? 280 : 160);
+            await wait(slow ? 280 : 160);
             break;
           case 'text':
             floatText(pos.cx, pos.y + 10, ev.msg, 'f-msg');
-            await sleep(slow ? 260 : 140);
+            await wait(slow ? 260 : 140);
             break;
           case 'energy':
             floatText(330, 880, '⚡ +' + ev.n, 'f-status');
@@ -315,8 +326,27 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       }
       if (found !== drag.hoverUid) {
         drag.hoverUid = found;
-        enemiesBox.querySelectorAll('.unit.enemy').forEach((u) => u.classList.toggle('drop-target', u.dataset.uid === found));
+        root.querySelectorAll('.dmg-preview').forEach((p) => p.remove());
+        enemiesBox.querySelectorAll('.unit.enemy').forEach((u) => {
+          const isTarget = u.dataset.uid === found;
+          u.classList.toggle('drop-target', isTarget);
+          if (isTarget) showDamagePreview(u);
+        });
       }
+    }
+
+    // 드랍 대상 적 위에 예상 피해(취약 포함) 표시
+    function showDamagePreview(unitEl) {
+      if (!drag) return;
+      const d = cardData(drag.card);
+      if (d.dmg === undefined && d.special !== 'bodySlam') return;
+      const target = c.enemies.find((e) => e.uid === unitEl.dataset.uid);
+      if (!target) return;
+      let dmg = previewValues(c, drag.card).dmg ?? 0;
+      if (target.statuses.vuln) dmg = Math.floor(dmg * 1.5);
+      const hits = d.hits || 1;
+      const chip = el('div', 'dmg-preview', `${dmg}${hits > 1 ? `×${hits}` : ''}`);
+      unitEl.appendChild(chip);
     }
 
     function cancelDrag(rerender = true) {
@@ -404,12 +434,18 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     });
 
     // ============ 숫자키 / 단축키 ============
+    // ev.code 기준으로 판정 — 한글 IME가 켜져 있어도(E키가 'ㄷ'으로 들어와도) 동작한다.
     function onKeyDown(ev) {
       if (finished) return;
       if (ev.key === 'Escape') { potionTarget = null; arrowSvg.innerHTML = ''; cancelDrag(); return; }
-      if (ev.key === 'e' || ev.key === 'E') { if (!busy && c.phase === 'player' && !c.over && !drag) void onEndTurn(); return; }
-      if (/^[0-9]$/.test(ev.key) && !busy && c.phase === 'player' && !c.over) {
-        const idx = ev.key === '0' ? 9 : Number(ev.key) - 1;
+      if (ev.code === 'KeyE' || ev.key === 'e' || ev.key === 'E') {
+        if (!busy && c.phase === 'player' && !c.over && !drag) void onEndTurn();
+        return;
+      }
+      const digitMatch = /^(?:Digit|Numpad)([0-9])$/.exec(ev.code) || (/^[0-9]$/.test(ev.key) ? [null, ev.key] : null);
+      if (digitMatch && !busy && c.phase === 'player' && !c.over) {
+        const digit = digitMatch[1];
+        const idx = digit === '0' ? 9 : Number(digit) - 1;
         const card = c.hand[idx];
         if (!card) return;
         if (drag && drag.card === card) { cancelDrag(); return; } // 같은 키 한 번 더 → 내려놓기
@@ -471,12 +507,12 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       await drainFx();
       if (c.over) { busy = false; finish(); return; }
       banner('적의 턴');
-      await sleep(500);
+      await wait(500);
       let acted;
       while ((acted = enemyTurnStep(c))) {
         await drainFx({ slow: true });
         if (c.over) break;
-        await sleep(250);
+        await wait(250);
       }
       if (!c.over) {
         finishEnemyPhase(c);
@@ -495,7 +531,7 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerup', onPointerUp);
-      await sleep(600);
+      await wait(600);
       run.hp = c.player.hp;
       resolve(c.over);
     }
