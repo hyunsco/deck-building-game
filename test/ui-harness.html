@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>UI harness</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="stage">
+      <div id="topbar"></div>
+      <div id="relicbar"></div>
+      <div id="screen"></div>
+      <div id="fxlayer"></div>
+      <div id="tooltip"></div>
+      <div id="fatal"></div>
+    </div>
+  </div>
+  <div id="report">pending</div>
+  <script type="module">
+    import { mulberry32 } from '../js/rng.js';
+    import { starterDeck, makeCard } from '../js/data/cards.js';
+    import { generateMap } from '../js/map.js';
+    import { runCombat } from '../js/combatui.js';
+    import { mapScreen } from '../js/screens.js';
+    import { initTooltips } from '../js/ui.js';
+
+    const report = [];
+    const flush = () => { document.getElementById('report').textContent = report.join(' | '); };
+    window.addEventListener('error', (ev) => { report.push('ERROR: ' + ev.message); flush(); });
+
+    initTooltips();
+    const rng = mulberry32(123);
+    const run = {
+      hp: 80, maxHp: 80, gold: 99,
+      deck: [...starterDeck(), makeCard('whirlwind'), makeCard('metallicize')],
+      relics: ['burningBlood', 'anchor', 'penNib'],
+      potions: ['firePotion', null, null],
+      map: generateMap(mulberry32(5)),
+      pos: null, path: [],
+      counters: { penNib: 0 }, monstersSlain: 0, elitesSlain: 0,
+    };
+
+    // 1) combat screen renders (not awaited — we only inspect the DOM)
+    runCombat(run, ['cultist', 'jawWorm'], rng, 'monster');
+    setTimeout(() => {
+      const checks = {
+        cards: document.querySelectorAll('.hand .card').length,
+        enemies: document.querySelectorAll('.unit.enemy').length,
+        intents: document.querySelectorAll('.intent').length,
+        orb: document.querySelectorAll('.energy-orb').length,
+        relics: document.querySelectorAll('.relic').length,
+        endturn: document.querySelectorAll('.end-turn').length,
+      };
+      report.push('combat ' + JSON.stringify(checks));
+      const pass1 = checks.cards === 5 && checks.enemies === 2 && checks.intents === 2 && checks.orb === 1 && checks.relics === 3 && checks.endturn === 1;
+      report.push(pass1 ? 'COMBAT_OK' : 'COMBAT_BAD');
+
+      // 2) map screen renders
+      mapScreen(run);
+      setTimeout(() => {
+        const m = {
+          nodes: document.querySelectorAll('.map-node').length,
+          clickable: document.querySelectorAll('.map-node.clickable').length,
+          edges: document.querySelectorAll('.map-edge').length,
+        };
+        report.push('map ' + JSON.stringify(m));
+        report.push(m.nodes > 30 && m.clickable >= 1 && m.edges > 30 ? 'MAP_OK' : 'MAP_BAD');
+        flush();
+      }, 300);
+    }, 1200);
+  </script>
+</body>
+</html>
