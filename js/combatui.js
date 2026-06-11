@@ -1,26 +1,32 @@
-// Combat screen — renders state from the engine and drives the interaction/animation loop.
+// Combat screen — drag & drop card play, number-key pickup, fx animation loop.
+//  · 단일 대상 카드: 적 위에 드랍 (조준 화살표 표시)
+//  · 모든 카드: 위쪽 전장으로 "꺼내서" 드랍하면 사용 (단일 대상 카드는 적이 하나일 때만)
+//  · 숫자키 1~9, 0: 손패 순서대로 카드를 집음 → 마우스로 옮겨 클릭으로 드랍
 import {
   createCombat, startCombat, playCard, endPlayerTurn, enemyTurnStep, finishEnemyPhase,
   usePotionInCombat, canPlay, attackDamage, cardCost,
 } from './combat.js';
 import { SPRITES, INTENT_ICONS } from './art.js';
 import {
-  el, $, cardEl, statusChips, floatText, shakeStage, elStageRect,
+  el, $, cardEl, statusChips, floatText, shakeStage, elStageRect, stageCoords,
   renderTopbar, potionMenu, cardGridOverlay, sleep, toast, STATUS_INFO,
 } from './ui.js';
 import { POTIONS } from './data/potions.js';
 import { cardData } from './data/cards.js';
+
+const DROP_Y = 640; // 이 높이(스테이지 좌표)보다 위에서 드랍하면 "꺼내서 사용"
 
 export function runCombat(run, enemyIds, rng, kind = 'monster') {
   return new Promise((resolve) => {
     const c = createCombat(run, enemyIds, rng, kind);
     const screen = $('#screen');
     screen.innerHTML = '';
-    screen.className = 'screen-combat';
+    screen.className = `screen-combat act-${run.act || 1}`;
 
     const root = el('div', 'combat');
     root.innerHTML = `
       <div class="battlefield">
+        <div class="drop-hint">여기에 드랍하여 사용</div>
         <div class="unit player" data-uid="p">
           <div class="sprite">${SPRITES.player()}</div>
           <div class="unit-bars"></div>
@@ -48,9 +54,11 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     const arrowSvg = root.querySelector('#target-arrow');
     const endBtn = root.querySelector('.end-turn');
 
-    let pending = null; // {type:'card', card} | {type:'potion', slot}
+    let drag = null;          // {card, viaKey, el(ghost), startX, startY, moved, hoverUid}
+    let potionTarget = null;  // {slot} — 물약 대상 지정 모드
     let busy = false;
     let finished = false;
+    let lastMouse = { x: 960, y: 700 };
 
     // ============ rendering ============
     const INTENT_TIP = {
@@ -61,7 +69,7 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       status: () => `<b class='tip-title'>방해 의도</b>내 덱에 쓸모없는 카드를 섞을 생각입니다.`,
       sleep: () => `<b class='tip-title'>수면</b>잠들어 있습니다.`,
       stunned: () => `<b class='tip-title'>기절</b>이번 턴을 쉽니다.`,
-      escape: () => `<b class='tip-title'>도주</b>도망칠 생각입니다!`,
+      escape: () => `<b class='tip-title'>도주</b>곧 사라질 생각입니다!`,
       unknown: () => `<b class='tip-title'>알 수 없음</b>무슨 짓을 할지 알 수 없습니다.`,
     };
 
@@ -70,16 +78,15 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       if (e.stunned) return `<div class="intent" data-tip="${INTENT_TIP.stunned()}">${INTENT_ICONS.stunned}</div>`;
       const m = e.intent;
       if (!m) return '';
-      let icon, text = '';
+      let icon;
       if (m.dmg !== undefined) {
         const dmg = attackDamage(m.dmg, e.statuses, c.player.statuses);
         const hits = m.hits || 1;
         if (m.intent === 'attack-defend') icon = INTENT_ICONS['attack-defend'];
         else if (m.intent === 'attack-debuff') icon = INTENT_ICONS['attack-debuff'];
         else icon = dmg >= 20 ? INTENT_ICONS.bigAttack : INTENT_ICONS.attack;
-        text = `<span class="intent-num">${dmg}${hits > 1 ? `×${hits}` : ''}</span>`;
         const total = hits > 1 ? `${dmg}×${hits}` : `${dmg}`;
-        return `<div class="intent" data-tip="${INTENT_TIP.attack(total)}">${icon}${text}</div>`;
+        return `<div class="intent" data-tip="${INTENT_TIP.attack(total)}">${icon}<span class="intent-num">${dmg}${hits > 1 ? `×${hits}` : ''}</span></div>`;
       }
       icon = INTENT_ICONS[m.intent] || INTENT_ICONS.unknown;
       const tip = (INTENT_TIP[m.intent] || INTENT_TIP.unknown)();
@@ -97,15 +104,14 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     }
 
     function refreshUnits() {
-      // player
       const pb = root.querySelector('.unit.player .unit-bars');
       pb.innerHTML = barsHtml(c.player.hp, c.player.maxHp, c.player.block);
       pb.appendChild(statusChips(c.player.statuses));
-      // enemies
       enemiesBox.innerHTML = '';
+      const targeting = (drag && needsSingleTarget(drag.card)) || potionTarget;
       for (const e of c.enemies) {
         if (e.gone) continue;
-        const u = el('div', `unit enemy size-${e.size}${e.hp <= 0 ? ' dead' : ''}${pending ? ' targetable' : ''}`);
+        const u = el('div', `unit enemy size-${e.size}${e.hp <= 0 ? ' dead' : ''}${targeting && e.hp > 0 ? ' targetable' : ''}`);
         u.dataset.uid = e.uid;
         const spriteFn = SPRITES[e.id] || SPRITES.acidSlimeM;
         u.innerHTML = `
@@ -115,7 +121,15 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
           <div class="unit-name">${e.name}</div>`;
         u.querySelector('.unit-bars').appendChild(statusChips(e.statuses));
         if (e.hp > 0) {
-          u.onclick = () => { if (pending) confirmTarget(e.uid); };
+          u.addEventListener('pointerdown', (ev) => {
+            if (potionTarget) {
+              ev.stopPropagation();
+              const slot = potionTarget.slot;
+              potionTarget = null;
+              arrowSvg.innerHTML = '';
+              void doUsePotion(slot, e.uid);
+            }
+          });
         }
         enemiesBox.appendChild(u);
       }
@@ -130,9 +144,14 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
         ce.style.setProperty('--rot', rot + 'deg');
         ce.style.setProperty('--ty', Math.abs(rot) * 4 + 'px');
         ce.style.zIndex = i + 1;
+        if (i < 10) ce.appendChild(el('span', 'card-key', String(i < 9 ? i + 1 : 0)));
         if (canPlay(c, card) && !busy) ce.classList.add('playable');
-        if (pending && pending.type === 'card' && pending.card === card) ce.classList.add('selected');
-        ce.onclick = (ev) => { ev.stopPropagation(); onCardClick(card); };
+        if (drag && drag.card === card) ce.classList.add('ghost-origin');
+        ce.addEventListener('pointerdown', (ev) => {
+          ev.preventDefault();
+          if (drag && drag.viaKey) { attemptDrop(); return; } // 숫자키로 집은 상태에서 클릭 → 드랍 시도
+          onCardPointerDown(card, ev);
+        });
         handBox.appendChild(ce);
       });
     }
@@ -147,6 +166,9 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       root.querySelector('.pile-btn.exhaust b').textContent = c.exhaustPile.length;
       endBtn.disabled = busy || c.phase !== 'player' || !!c.over;
       endBtn.textContent = c.phase === 'player' ? '턴 종료' : '적의 턴…';
+      root.querySelector('.pile-btn.draw').onclick = () => cardGridOverlay('뽑을 카드 더미 (순서 무작위)', [...c.drawPile].sort((a, b) => a.id.localeCompare(b.id)), { c });
+      root.querySelector('.pile-btn.discard').onclick = () => cardGridOverlay('버린 카드 더미', [...c.discardPile], { c });
+      root.querySelector('.pile-btn.exhaust').onclick = () => cardGridOverlay('소멸된 카드', [...c.exhaustPile], { c });
     }
 
     function refreshAll() {
@@ -201,12 +223,16 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
             await sleep(slow ? 300 : 180);
             break;
           case 'escape':
-            floatText(pos.cx, pos.y, '도주!', 'f-move');
+            floatText(pos.cx, pos.y, '소멸…', 'f-move');
             await sleep(300);
             break;
           case 'split':
             floatText(pos.cx, pos.y, '분열!', 'f-move');
             await sleep(300);
+            break;
+          case 'spawn':
+            floatText(pos.cx, pos.y + 30, '출현!', 'f-move');
+            await sleep(slow ? 280 : 160);
             break;
           case 'text':
             floatText(pos.cx, pos.y + 10, ev.msg, 'f-msg');
@@ -230,50 +256,177 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
     }
 
-    // ============ interactions ============
-    function onCardClick(card) {
-      if (busy || c.over || c.phase !== 'player') return;
-      if (pending && pending.type === 'card' && pending.card === card) { cancelPending(); return; }
+    // ============ drag & drop ============
+    function needsSingleTarget(card) {
+      return cardData(card).target === 'one';
+    }
+
+    function beginDrag(card, viaKey, x, y) {
+      if (busy || c.over || c.phase !== 'player') return false;
       if (!canPlay(c, card)) {
         const d = cardData(card);
         if (d.type === 'attack' && c.player.statuses.entangled) toast('포박되어 공격 카드를 사용할 수 없습니다!');
         else if (d.unplayable) toast('사용할 수 없는 카드입니다.');
         else toast('에너지가 부족합니다!');
-        return;
+        return false;
       }
-      const d = cardData(card);
-      const alive = c.aliveEnemies();
-      if (d.target === 'one' && alive.length > 1) {
-        pending = { type: 'card', card };
-        refreshAll();
+      cancelDrag(false);
+      drag = { card, viaKey, moved: viaKey, hoverUid: null, startX: x, startY: y };
+      const ghost = cardEl(card, c);
+      ghost.classList.add('drag-ghost');
+      root.appendChild(ghost);
+      drag.el = ghost;
+      root.classList.add('dragging');
+      root.classList.toggle('drag-needs-target', needsSingleTarget(card) && c.aliveEnemies().length > 1);
+      positionGhost(x, y);
+      refreshAll();
+      return true;
+    }
+
+    function positionGhost(x, y) {
+      if (!drag || !drag.el) return;
+      drag.el.style.left = (x - 100) + 'px';
+      drag.el.style.top = (y - 150) + 'px';
+      if (needsSingleTarget(drag.card)) {
+        drawArrow(x, y, !!drag.hoverUid);
       } else {
-        const target = d.target === 'one' ? alive[0]?.uid : null;
-        void doPlay(card, target);
+        arrowSvg.innerHTML = '';
+        root.classList.toggle('over-drop-zone', y < DROP_Y);
       }
     }
 
+    function drawArrow(x, y, locked) {
+      const x0 = drag ? Math.min(Math.max(drag.startX, 300), 1620) : 960;
+      const y0 = 970;
+      const mx = (x0 + x) / 2, my = Math.min(y0, y) - 150;
+      const color = locked ? '#7fdd8a' : '#ff5a4d';
+      const ang = Math.atan2(y - my, x - mx) * 180 / Math.PI;
+      arrowSvg.innerHTML = `
+        <path d="M${x0} ${y0} Q${mx} ${my} ${x} ${y}" fill="none" stroke="${color}" stroke-width="7" stroke-dasharray="16 11" opacity=".92"/>
+        <path d="M${x + 16} ${y} l-22 -11 l6 11 l-6 11 Z" fill="${color}" transform="rotate(${ang} ${x} ${y})"/>`;
+    }
+
+    function updateHover(x, y) {
+      if (!drag) return;
+      let found = null;
+      for (const u of enemiesBox.querySelectorAll('.unit.enemy:not(.dead)')) {
+        const r = elStageRect(u);
+        if (x >= r.x - 14 && x <= r.x + r.w + 14 && y >= r.y - 60 && y <= r.y + r.h + 14) { found = u.dataset.uid; break; }
+      }
+      if (found !== drag.hoverUid) {
+        drag.hoverUid = found;
+        enemiesBox.querySelectorAll('.unit.enemy').forEach((u) => u.classList.toggle('drop-target', u.dataset.uid === found));
+      }
+    }
+
+    function cancelDrag(rerender = true) {
+      if (drag && drag.el) drag.el.remove();
+      drag = null;
+      arrowSvg.innerHTML = '';
+      root.classList.remove('dragging', 'drag-needs-target', 'over-drop-zone');
+      if (rerender) refreshAll();
+    }
+
+    function attemptDrop() {
+      if (!drag) return;
+      const { card, hoverUid } = drag;
+      const d = cardData(card);
+      const { x, y } = lastMouse;
+      const alive = c.aliveEnemies();
+
+      if (hoverUid) {
+        cancelDrag(false);
+        void doPlay(card, d.target === 'one' ? hoverUid : null);
+        return;
+      }
+      if (y < DROP_Y) {
+        if (d.target === 'one' && alive.length > 1) {
+          toast('이 카드는 적에게 직접 드랍하세요!');
+          return; // 드래그 유지
+        }
+        cancelDrag(false);
+        void doPlay(card, d.target === 'one' ? alive[0]?.uid : null);
+        return;
+      }
+      cancelDrag(); // 손으로 되돌림
+    }
+
+    function onCardPointerDown(card, ev) {
+      const p = stageCoords(ev.clientX, ev.clientY);
+      lastMouse = p;
+      beginDrag(card, false, p.x, p.y);
+    }
+
+    // 전역 포인터 추적
+    function onPointerMove(ev) {
+      const p = stageCoords(ev.clientX, ev.clientY);
+      lastMouse = p;
+      if (drag) {
+        if (!drag.moved && Math.hypot(p.x - drag.startX, p.y - drag.startY) > 9) drag.moved = true;
+        positionGhost(p.x, p.y);
+        updateHover(p.x, p.y);
+      } else if (potionTarget) {
+        drawPotionArrow(p.x, p.y);
+      }
+    }
+
+    function onPointerUp(ev) {
+      if (!drag || drag.viaKey) return; // 키보드로 집은 카드는 클릭으로 드랍
+      const p = stageCoords(ev.clientX, ev.clientY);
+      lastMouse = p;
+      updateHover(p.x, p.y);
+      if (!drag.moved) { cancelDrag(); return; } // 제자리 클릭 → 취소
+      attemptDrop();
+    }
+
+    function onStagePointerDown(ev) {
+      if (drag && drag.viaKey) {
+        if (ev.target.closest('.hand .card')) return; // 손패 클릭은 카드 핸들러가 처리
+        const p = stageCoords(ev.clientX, ev.clientY);
+        lastMouse = p;
+        updateHover(p.x, p.y);
+        if (p.y >= DROP_Y && !drag.hoverUid) { cancelDrag(); return; } // 손 근처 클릭 → 내려놓기
+        attemptDrop();
+      }
+    }
+
+    function drawPotionArrow(x, y) {
+      arrowSvg.innerHTML = `
+        <path d="M960 980 Q${(960 + x) / 2} ${Math.min(980, y) - 150} ${x} ${y}" fill="none" stroke="#5fb6c9" stroke-width="6" stroke-dasharray="12 10" opacity=".9"/>
+        <circle cx="${x}" cy="${y}" r="9" fill="#5fb6c9"/>`;
+    }
+
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    root.addEventListener('pointerdown', onStagePointerDown);
+    root.addEventListener('contextmenu', (ev) => {
+      if (drag || potionTarget) { ev.preventDefault(); potionTarget = null; cancelDrag(); }
+    });
+
+    // ============ 숫자키 / 단축키 ============
+    function onKeyDown(ev) {
+      if (finished) return;
+      if (ev.key === 'Escape') { potionTarget = null; arrowSvg.innerHTML = ''; cancelDrag(); return; }
+      if (ev.key === 'e' || ev.key === 'E') { if (!busy && c.phase === 'player' && !c.over && !drag) void onEndTurn(); return; }
+      if (/^[0-9]$/.test(ev.key) && !busy && c.phase === 'player' && !c.over) {
+        const idx = ev.key === '0' ? 9 : Number(ev.key) - 1;
+        const card = c.hand[idx];
+        if (!card) return;
+        if (drag && drag.card === card) { cancelDrag(); return; } // 같은 키 한 번 더 → 내려놓기
+        beginDrag(card, true, lastMouse.x, lastMouse.y);
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+
+    // ============ actions ============
     async function doPlay(card, targetUid) {
-      cancelPending(false);
       busy = true;
+      root.classList.remove('dragging', 'drag-needs-target', 'over-drop-zone');
       playCard(c, card, targetUid);
       await drainFx();
       busy = false;
       refreshAll();
       if (c.over) finish();
-    }
-
-    function confirmTarget(uid) {
-      if (!pending) return;
-      const p = pending;
-      cancelPending(false);
-      if (p.type === 'card') void doPlay(p.card, uid);
-      else void doUsePotion(p.slot, uid);
-    }
-
-    function cancelPending(rerender = true) {
-      pending = null;
-      arrowSvg.innerHTML = '';
-      if (rerender) refreshAll();
     }
 
     function onPotionClick(slot, anchor) {
@@ -285,8 +438,9 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
         canUse: !c.over,
         onUse: () => {
           if (def.target === 'one' && c.aliveEnemies().length > 1) {
-            pending = { type: 'potion', slot };
+            potionTarget = { slot };
             refreshAll();
+            toast('대상 적을 클릭하세요');
           } else void doUsePotion(slot, c.aliveEnemies()[0]?.uid);
         },
         onDiscard: () => { run.potions[slot] = null; refreshAll(); },
@@ -306,34 +460,12 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       cardGridOverlay('내 덱', [...run.deck].sort((a, b) => a.id.localeCompare(b.id)), { c: null });
     }
 
-    // targeting arrow
-    root.addEventListener('mousemove', (ev) => {
-      if (!pending) return;
-      const { x, y } = (function () {
-        const stage = $('#stage').getBoundingClientRect();
-        const scale = stage.width / 1920;
-        return { x: (ev.clientX - stage.left) / scale, y: (ev.clientY - stage.top) / scale };
-      })();
-      const x0 = 960, y0 = 980;
-      const mx = (x0 + x) / 2, my = Math.min(y0, y) - 140;
-      arrowSvg.innerHTML = `
-        <path d="M${x0} ${y0} Q${mx} ${my} ${x} ${y}" fill="none" stroke="#ff5a4d" stroke-width="6" stroke-dasharray="14 10" opacity=".9"/>
-        <circle cx="${x}" cy="${y}" r="10" fill="#ff5a4d"/>`;
-    });
-    root.addEventListener('click', (ev) => {
-      if (pending && !ev.target.closest('.unit.enemy') && !ev.target.closest('.card')) cancelPending();
-    });
-    document.addEventListener('keydown', escListener);
-    function escListener(ev) {
-      if (ev.key === 'Escape' && pending) cancelPending();
-      if (ev.key === 'e' && !busy && c.phase === 'player' && !c.over) void onEndTurn();
-    }
-
     endBtn.onclick = () => void onEndTurn();
 
     async function onEndTurn() {
       if (busy || c.over || c.phase !== 'player') return;
-      cancelPending(false);
+      potionTarget = null;
+      cancelDrag(false);
       busy = true;
       endPlayerTurn(c);
       await drainFx();
@@ -359,7 +491,10 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     async function finish() {
       if (finished) return;
       finished = true;
-      document.removeEventListener('keydown', escListener);
+      cancelDrag(false);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
       await sleep(600);
       run.hp = c.player.hp;
       resolve(c.over);

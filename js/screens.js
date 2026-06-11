@@ -2,6 +2,7 @@
 import { el, $, cardEl, renderTopbar, cardGridOverlay, overlay, potionMenu, toast, sleep } from './ui.js';
 import { MAP_ICONS, SPRITES } from './art.js';
 import { ROWS, reachable } from './map.js';
+import { ACTS, FINAL_ACT } from './data/enemies.js';
 import { rollRewardCards, makeCard, CARDS, cardData, CARD_POOL } from './data/cards.js';
 import { RELICS, rollRelic } from './data/relics.js';
 import { POTIONS, rollPotion } from './data/potions.js';
@@ -82,7 +83,9 @@ function showHelp() {
     <p>● <b>공격</b> 카드는 피해를 주고, <b>스킬</b> 카드는 방어도 등 효과를 줍니다. 방어도는 턴 시작 시 사라집니다.</p>
     <p>● 적 머리 위 <b>의도 아이콘</b>으로 다음 행동(공격 피해량 등)을 미리 볼 수 있습니다.</p>
     <p>● 전투 승리 후 <b>카드 보상</b>으로 덱을 강화하고, 지도에서 길을 선택해 첨탑을 오르세요.</p>
-    <p>● <b>휴식처</b>에서 회복하거나 카드를 강화하고, 15층의 <b>보스</b>를 물리치면 승리합니다.</p>
+    <p>● 카드는 <b>드래그</b>해서 사용합니다 — 공격 카드는 <b>적 위에 드랍</b>, 그 외에는 <b>위쪽으로 꺼내서 드랍</b>하세요.</p>
+    <p>● <b>숫자키(1~9, 0)</b>로 그 순서의 카드를 집을 수 있습니다. 집은 카드는 마우스로 옮겨 <b>클릭</b>으로 드랍합니다.</p>
+    <p>● <b>휴식처</b>에서 회복하거나 카드를 강화하세요. 총 <b>3개의 막</b>을 오르고 마지막 보스를 쓰러뜨리면 엔딩입니다.</p>
     <p>● 단축키: <b>E</b> 턴 종료 · <b>ESC</b> 선택 취소</p>`);
   overlay('플레이 방법', content, {});
 }
@@ -90,7 +93,7 @@ function showHelp() {
 // ============ 지도 ============
 export function mapScreen(run) {
   return new Promise((resolve) => {
-    const s = setScreen('screen-map');
+    const s = setScreen(`screen-map act-${run.act}`);
     topbar(run);
 
     const W = 1920;
@@ -125,7 +128,7 @@ export function mapScreen(run) {
     const sheet = el('div', 'map-sheet');
     sheet.style.height = H + 'px';
     sheet.innerHTML = `<svg class="map-lines" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>
-      <div class="map-header">첨탑 지도 — 다음 행선지를 선택하세요</div>
+      <div class="map-header">${(ACTS[run.act] || ACTS[1]).name} — 다음 행선지를 선택하세요</div>
       <div class="map-legend">
         ${['monster', 'elite', 'event', 'rest', 'shop', 'treasure'].map((t) => `<span class="legend-item"><span class="legend-icon">${MAP_ICONS[t]}</span>${NODE_LABEL[t]}</span>`).join('')}
       </div>`;
@@ -159,7 +162,7 @@ export function mapScreen(run) {
     be.style.left = (bossX - 55) + 'px';
     be.style.top = (bossY - 40) + 'px';
     be.innerHTML = MAP_ICONS.boss;
-    be.dataset.tip = `<b class="tip-title">보스</b>첨탑의 수호자가 기다립니다…`;
+    be.dataset.tip = `<b class="tip-title">보스</b>${run.act}막의 수호자가 기다립니다…`;
     if (atTop) be.onclick = () => resolve({ type: 'boss', row: ROWS, col: 3 });
     sheet.appendChild(be);
 
@@ -567,38 +570,92 @@ export function treasureScreen(run, rng) {
   });
 }
 
-// ============ 게임 오버 / 승리 ============
+// ============ 막 전환 ============
+export function actTransitionScreen(run) {
+  return new Promise((resolve) => {
+    const s = setScreen(`screen-act-transition act-${run.act}`);
+    $('#topbar').innerHTML = '';
+    $('#relicbar').innerHTML = '';
+    const desc = run.act === 2
+      ? '보스를 쓰러뜨리고 첨탑의 중턱에 들어섰습니다.<br>안개 너머에서 더 강한 존재들이 당신을 지켜봅니다.'
+      : '정상이 가까워집니다. 공기가 얼어붙고,<br>첨탑의 심장 소리가 들려오기 시작합니다.';
+    s.innerHTML = `
+      <div class="act-trans">
+        <p class="act-eyebrow">막간 — 짧은 휴식 (체력 30% 회복)</p>
+        <h1 class="act-title">${ACTS[run.act].name}</h1>
+        <p class="act-desc">${desc}</p>
+        <p class="act-hp">❤ ${run.hp}/${run.maxHp}</p>
+        <button class="proceed-btn">등반 계속 ▲</button>
+      </div>`;
+    s.querySelector('.proceed-btn').onclick = () => resolve();
+  });
+}
+
+// ============ 점수 집계 ============
+function scoreLines(run, victory) {
+  const lines = [
+    ['등반한 층', run.totalFloors || run.path.length, (run.totalFloors || run.path.length) * 5],
+    ['처치한 몬스터', run.monstersSlain, run.monstersSlain * 3],
+    ['처치한 정예', run.elitesSlain, run.elitesSlain * 15],
+    ['격파한 보스', run.bossesSlain || 0, (run.bossesSlain || 0) * 50],
+    ['모은 금화', run.gold, Math.floor(run.gold / 5)],
+  ];
+  if (victory) lines.push(['첨탑 정복', 1, 200]);
+  return lines;
+}
+
+function animateScore(s, lines) {
+  const total = lines.reduce((a, l) => a + l[2], 0);
+  const list = s.querySelector('.score-list');
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      list.appendChild(el('li', '', `<span>${l[0]} × ${l[1]}</span><b>${l[2]}</b>`));
+      if (i === lines.length - 1) {
+        setTimeout(() => {
+          s.querySelector('.score-total').innerHTML = `총점 <b>${total}</b>`;
+        }, 250);
+      }
+    }, 320 * (i + 1));
+  });
+}
+
+// ============ 게임 오버 ============
 export function gameOverScreen(run, victory) {
   return new Promise((resolve) => {
     const s = setScreen('screen-gameover' + (victory ? ' victory' : ''));
     $('#topbar').innerHTML = '';
     $('#relicbar').innerHTML = '';
-    const floors = run.path.length;
-    const lines = [
-      ['등반한 층', floors, floors * 5],
-      ['처치한 몬스터', run.monstersSlain, run.monstersSlain * 3],
-      ['처치한 정예', run.elitesSlain, run.elitesSlain * 15],
-      ['모은 금화', run.gold, Math.floor(run.gold / 5)],
-    ];
-    if (victory) lines.push(['첨탑의 수호자 격파', 1, 100]);
-    const total = lines.reduce((a, l) => a + l[2], 0);
-
     s.innerHTML = `
       <h1 class="big-banner ${victory ? 'gold' : 'red'}">${victory ? '승리!' : '사망'}</h1>
-      <p class="go-sub">${victory ? '첨탑의 수호자를 쓰러뜨렸습니다. 등반은 계속됩니다…' : '첨탑은 당신을 삼켰습니다. 다음 도전자가 기다립니다.'}</p>
+      <p class="go-sub">${victory ? '첨탑을 정복했습니다.' : `${run.act}막에서 쓰러졌습니다. 첨탑은 다음 도전자를 기다립니다.`}</p>
       <div class="score-panel"><h2>기록</h2><ul class="score-list"></ul><div class="score-total"></div></div>
       <button class="title-btn" id="go-restart">처음으로</button>`;
-    const list = s.querySelector('.score-list');
-    lines.forEach((l, i) => {
-      setTimeout(() => {
-        list.appendChild(el('li', '', `<span>${l[0]} × ${l[1]}</span><b>${l[2]}</b>`));
-        if (i === lines.length - 1) {
-          setTimeout(() => {
-            s.querySelector('.score-total').innerHTML = `총점 <b>${total}</b>`;
-          }, 250);
-        }
-      }, 350 * (i + 1));
-    });
+    animateScore(s, scoreLines(run, victory));
+    s.querySelector('#go-restart').onclick = () => resolve();
+  });
+}
+
+// ============ 엔딩 (3막 보스 격파) ============
+export function endingScreen(run) {
+  return new Promise((resolve) => {
+    const s = setScreen('screen-ending');
+    $('#topbar').innerHTML = '';
+    $('#relicbar').innerHTML = '';
+    s.innerHTML = `
+      <div class="ending-sky"></div>
+      <div class="ending-hero">${SPRITES.player()}</div>
+      <div class="ending-content">
+        <p class="act-eyebrow">— 등반의 끝 —</p>
+        <h1 class="big-banner gold">첨탑 정복</h1>
+        <p class="ending-story">
+          마지막 수호자가 무너지자, 첨탑 꼭대기에 고요가 내려앉았습니다.<br>
+          구름 아래로 당신이 걸어온 길이 까마득히 펼쳐집니다.<br>
+          전사는 검을 거두고, 떠오르는 해를 바라봅니다.<br>
+          <b>이 등반의 이야기는 이렇게 전설이 되었습니다.</b></p>
+        <div class="score-panel"><h2>최종 기록</h2><ul class="score-list"></ul><div class="score-total"></div></div>
+        <button class="title-btn" id="go-restart">처음으로</button>
+      </div>`;
+    animateScore(s, scoreLines(run, true));
     s.querySelector('#go-restart').onclick = () => resolve();
   });
 }

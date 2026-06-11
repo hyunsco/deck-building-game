@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>screen shots harness</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="stage">
+      <div id="topbar"></div>
+      <div id="relicbar"></div>
+      <div id="screen"></div>
+      <div id="fxlayer"></div>
+      <div id="tooltip"></div>
+      <div id="fatal"></div>
+    </div>
+  </div>
+  <script type="module">
+    // ?s=rest|ending|trans|reward|event|gameover|cards — 화면별 시각 QA용
+    import { mulberry32 } from '../js/rng.js';
+    import { starterDeck, makeCard, rollRewardCards } from '../js/data/cards.js';
+    import { generateMap } from '../js/map.js';
+    import {
+      restScreen, endingScreen, actTransitionScreen, rewardsScreen, eventScreen, gameOverScreen,
+    } from '../js/screens.js';
+    import { runCombat } from '../js/combatui.js';
+    import { EVENTS } from '../js/data/events.js';
+    import { cardGridOverlay, initTooltips } from '../js/ui.js';
+
+    function fit() {
+      const sc = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      document.getElementById('stage').style.transform = `scale(${sc})`;
+    }
+    window.addEventListener('resize', fit); fit();
+    initTooltips();
+
+    const rng = mulberry32(7);
+    const run = {
+      act: 2, hp: 52, maxHp: 87, gold: 214,
+      deck: [...starterDeck(), makeCard('bludgeon', true), makeCard('whirlwind'), makeCard('demonForm')],
+      relics: ['burningBlood', 'anchor', 'penNib', 'kunai', 'strawberry'],
+      potions: ['firePotion', 'bloodPotion', null],
+      map: generateMap(mulberry32(5)),
+      pos: { row: 3, col: 2 }, path: [{ row: 0, col: 2 }, { row: 1, col: 2 }, { row: 2, col: 3 }, { row: 3, col: 2 }],
+      counters: { penNib: 4 }, monstersSlain: 14, elitesSlain: 2, bossesSlain: 1, totalFloors: 21,
+      removalCost: 100, removedThisShop: false,
+    };
+
+    const s = new URLSearchParams(location.search).get('s') || 'rest';
+    switch (s) {
+      case 'rest': restScreen(run); break;
+      case 'ending': endingScreen(run); break;
+      case 'trans': actTransitionScreen(run); break;
+      case 'gameover': gameOverScreen(run, false); break;
+      case 'reward': rewardsScreen(run, { gold: 24, potion: 'firePotion', cards: rollRewardCards(rng, 'elite'), relic: 'hornCleat' }, '정예 격파!'); break;
+      case 'event': eventScreen(run, EVENTS[1], rng); break;
+      case 'cards': cardGridOverlay('내 덱', run.deck, {}); break;
+      case 'combat2': runCombat(run, ['centurion', 'mystic'], rng, 'monster'); break;
+      case 'elite2': runCombat(run, ['gremlinNob', 'gremlinLeader'], rng, 'elite'); break;
+      case 'boss3': run.act = 3; runCombat(run, ['awakenedOne'], rng, 'boss'); break;
+      case 'boss2': runCombat(run, ['bronzeAutomaton'], rng, 'boss'); break;
+    }
+  </script>
+</body>
+</html>

@@ -60,6 +60,22 @@ export function createCombat(run, enemyIds, rng, kind = 'monster') {
     c.fx.push({ t: 'text', who: 'p', msg: `${CARDS[id].name} +${n}` });
   };
   c.refreshIntent = (e) => { e.intent = ENEMIES[e.id].ai(e, c); };
+  c.spawnEnemy = (id, beforeEnemy = null) => {
+    if (c.aliveEnemies().length >= 5) return null;
+    const s = makeEnemy(id, c.rng, c.enemies.length);
+    c.refreshIntent(s);
+    const idx = beforeEnemy ? c.enemies.indexOf(beforeEnemy) : -1;
+    if (idx >= 0) c.enemies.splice(idx, 0, s);
+    else c.enemies.push(s);
+    c.fx.push({ t: 'spawn', who: s.uid });
+    return s;
+  };
+  c.healEnemy = (e, n) => {
+    const real = Math.min(n, e.maxHp - e.hp);
+    if (real <= 0) return;
+    e.hp += real;
+    c.fx.push({ t: 'heal', who: e.uid, amt: real });
+  };
 
   return c;
 }
@@ -169,6 +185,7 @@ function enemyHitPlayer(c, e, base) {
 // damage to enemy; amt is final (already through attackDamage for attacks)
 export function hitEnemy(c, e, amt, { isAttack = true } = {}) {
   if (e.gone || e.hp <= 0) return 0;
+  if (e.statuses.intangible) amt = Math.min(amt, 1); // 무형: 모든 피해를 1로 감소
   let rem = amt;
   const absorbed = Math.min(e.block, rem);
   e.block -= absorbed;
@@ -195,6 +212,8 @@ export function hitEnemy(c, e, amt, { isAttack = true } = {}) {
 }
 
 function killEnemy(c, e) {
+  const def = ENEMIES[e.id];
+  if (def.onDeath && def.onDeath(e, c) === 'revive') return; // 부활 (각성자 2페이즈)
   e.hp = 0;
   c.fx.push({ t: 'die', who: e.uid });
   if (e.statuses.spore) c.addPlayerStatus('vuln', e.statuses.spore);
@@ -526,7 +545,7 @@ export function enemyTurnStep(c) {
     const e = c.enemies[c.enemyIdx++];
     if (e.gone || e.hp <= 0) continue;
 
-    e.block = 0;
+    if (!e.statuses.barricadeE) e.block = 0; // 방벽: 방어도가 사라지지 않음
     const move = e.intent;
 
     if (e.stunned) {
@@ -554,13 +573,14 @@ export function enemyTurnStep(c) {
           }
         }
         if (move.apply) move.apply(c, e);
+        if (move.selfDestruct && e.hp > 0 && !e.gone) killEnemy(c, e); // 자폭 (단검)
       }
     }
 
     if (!e.gone && e.hp > 0) {
       if (e.statuses.metallicizeE) c.gainEnemyBlock(e, e.statuses.metallicizeE);
       if (e.statuses.ritual) c.addEnemyStatus(e, 'str', e.statuses.ritual);
-      for (const k of ['vuln', 'weak']) {
+      for (const k of ['vuln', 'weak', 'intangible']) {
         if (e.statuses[k]) { e.statuses[k]--; if (!e.statuses[k]) delete e.statuses[k]; }
       }
       e.turn++;

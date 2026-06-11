@@ -3,6 +3,7 @@ import { cardData } from './data/cards.js';
 import { renderCardText, cardCost } from './combat.js';
 import { RELICS } from './data/relics.js';
 import { POTIONS } from './data/potions.js';
+import { ACTS } from './data/enemies.js';
 
 export function el(tag, cls = '', html = '') {
   const e = document.createElement(tag);
@@ -37,6 +38,9 @@ export const STATUS_INFO = {
   entangled: { name: '포박', cls: 'debuff', desc: '이번 턴에 공격 카드를 사용할 수 없습니다.' },
   noDraw: { name: '뽑기 불가', cls: 'debuff', desc: '이번 턴에 카드를 더 뽑을 수 없습니다.' },
   flexDown: { name: '임시 힘', cls: 'neutral', desc: '턴 종료 시 힘을 {n} 잃습니다.' },
+  barricadeE: { name: '방벽', cls: 'buff', desc: '방어도가 턴이 지나도 사라지지 않습니다.' },
+  intangible: { name: '무형', cls: 'buff', desc: '받는 모든 피해가 1로 감소합니다. ({n}턴)' },
+  fading: { name: '소멸 예정', cls: 'neutral', desc: '{n}턴 후 스스로 사라집니다.' },
 };
 
 export function statusChips(statuses) {
@@ -123,7 +127,8 @@ export function renderTopbar(run, handlers = {}) {
   const bar = $('#topbar');
   bar.innerHTML = '';
   const left = el('div', 'tb-left');
-  left.appendChild(el('span', 'tb-name', `철갑 전사 <span class="tb-sub">· 첨탑 1막</span>`));
+  const actName = (ACTS[run.act] || ACTS[1]).name;
+  left.appendChild(el('span', 'tb-name', `철갑 전사 <span class="tb-sub">· ${actName}</span>`));
   const hp = el('span', 'tb-hp', `❤ <b>${run.hp}</b>/${run.maxHp}`);
   hp.dataset.tip = '<b class="tip-title">체력</b>0이 되면 사망합니다. 전투가 끝나도 유지됩니다.';
   const gold = el('span', 'tb-gold', `🪙 <b>${run.gold}</b>`);
@@ -145,7 +150,7 @@ export function renderTopbar(run, handlers = {}) {
   });
 
   const right = el('div', 'tb-right');
-  const floor = el('span', 'tb-floor', `${run.pos ? run.pos.row + 1 : 0}층`);
+  const floor = el('span', 'tb-floor', run.pos ? `${run.pos.row + 1}층` : '');
   const deckBtn = el('button', 'tb-btn', `🂠 덱 <b>${run.deck.length}</b>`);
   deckBtn.onclick = () => handlers.onDeck && handlers.onDeck();
   right.append(floor, deckBtn);
