@@ -173,7 +173,14 @@ button { font-family: inherit; line-height: 1.3; }
 .card.pickable:hover { transform: scale(1.1); box-shadow: 0 0 22px rgba(245,215,110,.6); z-index: 5; }
 
 /* ===== 드래그 앤 드랍 ===== */
+/* 터치/트랙패드 제스처가 드래그를 가로채(pointercancel) 끊기지 않도록 차단 */
+.combat, .card { touch-action: none; }
 .hand .card.ghost-origin { visibility: hidden; }
+/* 드래그 중에는 다른 손패 카드의 호버 확대를 멈춰 화면 흔들림(끊기는 느낌) 제거 */
+.combat.dragging .hand .card:hover {
+  transform: rotate(var(--rot, 0deg)) translateY(var(--ty, 0px));
+  z-index: auto;
+}
 .card.drag-ghost {
   position: absolute; z-index: 66; pointer-events: none; cursor: grabbing;
   transform: scale(1.08) rotate(-1.5deg);
@@ -377,6 +384,15 @@ button { font-family: inherit; line-height: 1.3; }
 .grid-empty { color: #9d8f73; font-size: 20px; padding: 40px; }
 .choice-row { display: flex; gap: 36px; justify-content: center; padding: 14px 8px 6px; }
 .choice-row .card { transform: scale(1.12); margin: 18px; }
+
+/* 강화 미리보기 비교 */
+.choice-row.compare { align-items: center; gap: 10px; }
+.compare-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.compare-label { font-size: 20px; color: #9d8f73; font-weight: 700; }
+.compare-label.upgraded-label { color: var(--green); }
+.compare-arrow { font-size: 52px; color: var(--gold-hi); text-shadow: 0 0 18px rgba(245,215,110,.5); margin: 0 14px; }
+.confirm-btns { display: flex; gap: 22px; justify-content: center; align-items: center; margin-top: 10px; }
+.confirm-btns .proceed-btn, .confirm-btns .skip-btn { margin: 0; }
 .skip-btn, .menu-btn {
   font-family: inherit; display: block; margin: 26px auto 4px; cursor: pointer; font-size: 21px;
   color: var(--parch); background: none; border: 2px solid var(--gold-dim); border-radius: 10px; padding: 9px 36px;

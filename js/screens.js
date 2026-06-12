@@ -235,11 +235,60 @@ export function rewardsScreen(run, rewards, title = '승리!') {
 
 export function gainRelic(run, relicId) {
   run.relics.push(relicId);
-  if (RELICS[relicId].onPickup === 'maxHp7') {
-    run.maxHp += 7;
-    run.hp += 7;
+  switch (RELICS[relicId].onPickup) {
+    case 'maxHp7':
+      run.maxHp += 7; run.hp += 7;
+      break;
+    case 'maxHp10':
+      run.maxHp += 10; run.hp += 10;
+      break;
+    case 'upgradeStrikes': {
+      const strikes = run.deck.filter((cd) => !cd.upgraded && cd.id.toLowerCase().includes('strike'));
+      strikes.slice(0, 2).forEach((cd) => { cd.upgraded = true; });
+      break;
+    }
   }
   toast(`유물 획득: ${RELICS[relicId].name}`);
+}
+
+// 강화 미리보기 + 최종 확인 — 확정 시 true 반환
+export function confirmUpgrade(run, card) {
+  return new Promise((resolve) => {
+    const preview = { ...card, upgraded: true };
+    const content = el('div', 'upgrade-confirm');
+    const row = el('div', 'choice-row compare');
+    const before = el('div', 'compare-col', '<p class="compare-label">현재</p>');
+    before.appendChild(cardEl(card, null));
+    const arrow = el('div', 'compare-arrow', '➜');
+    const after = el('div', 'compare-col', '<p class="compare-label upgraded-label">강화 후</p>');
+    after.appendChild(cardEl(preview, null));
+    row.append(before, arrow, after);
+    content.appendChild(row);
+    const btns = el('div', 'confirm-btns');
+    const okBtn = el('button', 'proceed-btn', '⚒️ 강화 확정');
+    const cancelBtn = el('button', 'skip-btn', '취소');
+    btns.append(okBtn, cancelBtn);
+    content.appendChild(btns);
+    let decided = false;
+    const ov = overlay('이렇게 강화됩니다', content, { closable: true, onClose: () => { if (!decided) resolve(false); } });
+    okBtn.onclick = () => { decided = true; ov.close(); resolve(true); };
+    cancelBtn.onclick = () => { decided = true; ov.close(); resolve(false); };
+  });
+}
+
+// 강화할 카드 선택 → 미리보기 확인 → 확정 시 콜백. 취소하면 다시 선택으로.
+export function pickAndConfirmUpgrade(run, upgradable, onDone) {
+  cardGridOverlay('강화할 카드를 선택하세요', upgradable, {
+    onPick: async (card) => {
+      const confirmed = await confirmUpgrade(run, card);
+      if (confirmed) {
+        card.upgraded = true;
+        onDone(card);
+      } else {
+        pickAndConfirmUpgrade(run, upgradable, onDone); // 다시 고르기
+      }
+    },
+  });
 }
 
 function cardChoice(run, cards) {
@@ -287,11 +336,8 @@ export function restScreen(run) {
     const smithBtn = el('button', 'rest-option' + (upgradable.length ? '' : ' disabled'), `<span class="ro-icon">⚒️</span><b>단련</b><span>카드 1장을 영구히<br>강화합니다</span>`);
     if (upgradable.length) {
       smithBtn.onclick = () => {
-        cardGridOverlay('강화할 카드를 선택하세요', upgradable, {
-          onPick: (card) => {
-            card.upgraded = true;
-            done(`강화 완료: ${cardData(card).displayName}`);
-          },
+        pickAndConfirmUpgrade(run, upgradable, (card) => {
+          done(`강화 완료: ${cardData(card).displayName}`);
         });
       };
     }
@@ -308,12 +354,19 @@ export function restScreen(run) {
 }
 
 // ============ 상점 ============
+const SHOP_LINES = [
+  '"천천히 골라 보게. 물건은 확실하니까."',
+  '"첨탑을 오르는 손님은 오랜만이군. 특별히 잘해 주지."',
+  '"위층에서 주워 온 물건들이야. 출처는 묻지 말고."',
+  '"환불은 없네. 어차피 다시 내려올 손님도 없었지만."',
+];
+
 export function shopScreen(run, rng) {
   return new Promise((resolve) => {
     const s = setScreen('screen-shop');
     topbar(run);
     s.innerHTML = `
-      <div class="shop-head"><span class="shop-keeper">🧙</span><h1>떠돌이 상인</h1><p>"천천히 골라 보게. 물건은 확실하니까."</p></div>
+      <div class="shop-head"><span class="shop-keeper">🧙</span><h1>떠돌이 상인</h1><p>${pick(rng, SHOP_LINES)}</p></div>
       <div class="shop-cards"></div>
       <div class="shop-row2"></div>
       <div class="shop-foot"></div>`;
@@ -340,9 +393,13 @@ export function shopScreen(run, rng) {
 
     const relicStock = [];
     const ownedPlus = [...run.relics];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const rid = rollRelic(rng, ownedPlus);
-      if (rid) { ownedPlus.push(rid); relicStock.push({ rid, price: randInt(rng, 143, 157), sold: false }); }
+      if (rid) {
+        ownedPlus.push(rid);
+        const base = RELICS[rid].rarity === 'rare' ? randInt(rng, 240, 280) : randInt(rng, 143, 157);
+        relicStock.push({ rid, price: base, sold: false });
+      }
     }
     const potionStock = Array.from({ length: 3 }, () => ({ pid: rollPotion(rng), price: randInt(rng, 48, 52), sold: false }));
 
@@ -405,7 +462,7 @@ export function shopScreen(run, rng) {
 
       foot.innerHTML = '';
       const removeBtn = el('button', 'shop-service' + (run.gold < run.removalCost || run.removedThisShop ? ' disabled' : ''),
-        `🗑️ 카드 제거 서비스 — 🪙 ${run.removalCost}${run.removedThisShop ? ' (이용 완료)' : ''}`);
+        `🗑️ 카드 제거 — 🪙 ${run.removalCost}${run.removedThisShop ? ' (이용 완료)' : ''}`);
       if (run.gold >= run.removalCost && !run.removedThisShop) {
         removeBtn.onclick = () => {
           cardGridOverlay('제거할 카드를 선택하세요', [...run.deck], {
@@ -420,9 +477,25 @@ export function shopScreen(run, rng) {
           });
         };
       }
+      // 카드 강화 서비스 (1회, 미리보기 확인 포함)
+      const UPGRADE_PRICE = 90;
+      const upgradable = run.deck.filter((cd) => !cd.upgraded && !['status', 'curse'].includes(CARDS[cd.id].type));
+      const canSmith = run.gold >= UPGRADE_PRICE && !run.smithedThisShop && upgradable.length > 0;
+      const smithBtn = el('button', 'shop-service' + (canSmith ? '' : ' disabled'),
+        `⚒️ 카드 강화 — 🪙 ${UPGRADE_PRICE}${run.smithedThisShop ? ' (이용 완료)' : ''}`);
+      if (canSmith) {
+        smithBtn.onclick = () => {
+          pickAndConfirmUpgrade(run, upgradable, (card) => {
+            run.gold -= UPGRADE_PRICE;
+            run.smithedThisShop = true;
+            toast(`강화 완료: ${cardData(card).displayName}`);
+            refresh();
+          });
+        };
+      }
       const leave = el('button', 'proceed-btn', '상점 나가기 ▲');
       leave.onclick = () => resolve();
-      foot.append(removeBtn, leave);
+      foot.append(removeBtn, smithBtn, leave);
     }
     refresh();
   });
@@ -493,11 +566,28 @@ function applyEventEffect(run, fx, rng, finish) {
     if (rid) { gainRelic(run, rid); parts.push(`유물: ${RELICS[rid].name}`); }
     else parts.push('획득할 유물이 없습니다');
   }
-  if (fx.potion) {
-    const slot = run.potions.indexOf(null);
-    const pid = rollPotion(rng);
-    if (slot >= 0) { run.potions[slot] = pid; parts.push(`물약: ${POTIONS[pid].name}`); }
-    else parts.push('물약 슬롯이 가득 찼습니다');
+  if (fx.potion || fx.potions) {
+    const count = fx.potions || 1;
+    for (let i = 0; i < count; i++) {
+      const slot = run.potions.indexOf(null);
+      const pid = rollPotion(rng);
+      if (slot >= 0) { run.potions[slot] = pid; parts.push(`물약: ${POTIONS[pid].name}`); }
+      else { parts.push('물약 슬롯이 가득 찼습니다'); break; }
+    }
+  }
+  if (fx.wheel) {
+    const roll = rng();
+    if (roll < 0.34) {
+      run.gold += 60;
+      parts.push('수레바퀴가 금빛에 멈췄습니다! 금화 +60');
+    } else if (roll < 0.67) {
+      const rid = rollRelic(rng, run.relics);
+      if (rid) { gainRelic(run, rid); parts.push(`수레바퀴가 보랏빛에 멈췄습니다! 유물: ${RELICS[rid].name}`); }
+      else { run.gold += 60; parts.push('수레바퀴가 금빛에 멈췄습니다! 금화 +60'); }
+    } else {
+      run.hp = Math.max(1, run.hp - 10);
+      parts.push('수레바퀴가 핏빛에 멈췄습니다… 체력 -10');
+    }
   }
   if (fx.curse) {
     run.deck.push(makeCard(fx.curse));
@@ -519,8 +609,17 @@ function applyEventEffect(run, fx, rng, finish) {
   if (fx.pickUpgrade) {
     const upgradable = run.deck.filter((cd) => !cd.upgraded && !['status', 'curse'].includes(CARDS[cd.id].type));
     if (!upgradable.length) return finish('강화할 카드가 없습니다.');
-    cardGridOverlay('강화할 카드를 선택하세요', upgradable, {
-      onPick: (card) => { card.upgraded = true; finish(`강화 완료: ${cardData(card).displayName}`); },
+    pickAndConfirmUpgrade(run, upgradable, (card) => {
+      finish(`강화 완료: ${cardData(card).displayName}`);
+    });
+    return;
+  }
+  if (fx.pickDuplicate) {
+    cardGridOverlay('복제할 카드를 선택하세요', [...run.deck], {
+      onPick: (card) => {
+        run.deck.push(makeCard(card.id, card.upgraded));
+        finish(`복제: ${cardData(card).displayName}`);
+      },
     });
     return;
   }

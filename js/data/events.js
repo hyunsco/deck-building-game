@@ -66,4 +66,67 @@ export const EVENTS = [
       { label: '거절한다', sub: '아무 일도 일어나지 않는다', effect: { leave: true } },
     ],
   },
+  {
+    id: 'mirrorPool',
+    title: '거울 연못',
+    art: '🪞',
+    text: '수면이 거울처럼 매끄러운 연못입니다. 물에 비친 또 다른 당신이 손짓하며, 품 안의 카드 한 장을 가리킵니다.',
+    options: [
+      { label: '카드를 비춰본다', sub: '카드 1장을 복제하여 덱에 추가', effect: { pickDuplicate: true } },
+      { label: '연못에 손을 담근다', sub: '체력 8 회복', effect: { hp: 8 } },
+      { label: '떠난다', sub: '아무 일도 일어나지 않는다', effect: { leave: true } },
+    ],
+  },
+  {
+    id: 'herbalist',
+    title: '떠돌이 약초상',
+    art: '🌿',
+    text: '약초 냄새가 진동하는 수레 곁에서 노파가 손을 흔듭니다. "싸게 줄게. 산을 오를 거면 챙겨 가."',
+    options: [
+      { label: '금화 30을 낸다', sub: '무작위 물약 2개 획득', cond: (run) => run.gold >= 30, effect: { gold: -30, potions: 2 } },
+      { label: '찻잎만 얻어 마신다', sub: '체력 10 회복', effect: { hp: 10 } },
+      { label: '떠난다', sub: '아무 일도 일어나지 않는다', effect: { leave: true } },
+    ],
+  },
+  {
+    id: 'grave',
+    title: '이름 없는 무덤',
+    art: '🪦',
+    text: '봉분 위에 녹슨 검이 꽂혀 있습니다. 무덤 주인은 분명 부유한 전사였을 것입니다. 흙은 부드럽고, 아무도 보고 있지 않습니다.',
+    options: [
+      { label: '무덤을 판다', sub: '금화 65 획득, 저주 카드 "무력감" 획득', effect: { gold: 65, curse: 'doubt' } },
+      { label: '명복을 빈다', sub: '체력 6 회복', effect: { hp: 6 } },
+    ],
+  },
+  {
+    id: 'echo',
+    title: '첨탑의 메아리',
+    art: '🌀',
+    text: '벽의 갈라진 틈에서 낮은 울림이 새어 나옵니다. 귀를 기울이자, 그 소리가 당신의 심장 박동과 겹쳐집니다.',
+    options: [
+      { label: '울림을 받아들인다', sub: '최대 체력 +6', effect: { maxHp: 6 } },
+      { label: '소리를 거슬러 외친다', sub: '카드 1장 제거', effect: { pickRemove: true } },
+    ],
+  },
+  {
+    id: 'library',
+    title: '불타는 서고',
+    art: '📚',
+    text: '버려진 서고에 불이 번지고 있습니다. 선반 위에 아직 멀쩡한 전투 교본 몇 권이 보입니다. 시간이 없습니다.',
+    options: [
+      { label: '불길로 뛰어든다', sub: '체력 5 손실, 상급 카드 보상(3택1)', effect: { hp: -5, cardReward: 'elite' } },
+      { label: '잿더미를 뒤진다', sub: '금화 20 획득', effect: { gold: 20 } },
+      { label: '떠난다', sub: '아무 일도 일어나지 않는다', effect: { leave: true } },
+    ],
+  },
+  {
+    id: 'wheel',
+    title: '운명의 수레바퀴',
+    art: '🎡',
+    text: '낡은 수레바퀴가 허공에 떠서 천천히 돌고 있습니다. 바퀴살마다 알 수 없는 문양이 새겨져 있습니다. 돌리면, 무언가는 반드시 일어납니다.',
+    options: [
+      { label: '바퀴를 돌린다', sub: '금화 +60 / 유물 / 체력 -10 중 하나 (무작위)', effect: { wheel: true } },
+      { label: '지나친다', sub: '아무 일도 일어나지 않는다', effect: { leave: true } },
+    ],
+  },
 ];

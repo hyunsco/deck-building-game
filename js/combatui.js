@@ -272,7 +272,7 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       return cardData(card).target === 'one';
     }
 
-    function beginDrag(card, viaKey, x, y) {
+    function beginDrag(card, viaKey, x, y, ev = null) {
       if (busy || c.over || c.phase !== 'player') return false;
       if (!canPlay(c, card)) {
         const d = cardData(card);
@@ -289,8 +289,16 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       drag.el = ghost;
       root.classList.add('dragging');
       root.classList.toggle('drag-needs-target', needsSingleTarget(card) && c.aliveEnemies().length > 1);
+      // 포인터 캡처: 버튼을 누른 채 창 밖으로 나가도 pointerup을 받는다.
+      // 캡처 대상은 (재렌더링으로 사라질 수 있는 카드가 아니라) 전투 화면 루트.
+      if (ev && ev.pointerId !== undefined) {
+        try { root.setPointerCapture(ev.pointerId); } catch (err) { /* 미지원 환경 무시 */ }
+      }
       positionGhost(x, y);
-      refreshAll();
+      // 주의: 손패를 재렌더링하지 않는다 — pointerdown이 발생한 원본 요소가 파괴되면
+      // 터치/일부 트랙패드의 암시적 포인터 캡처가 끊겨 드래그가 중단된다.
+      handBox.querySelector(`.card[data-uid="${card.uid}"]`)?.classList.add('ghost-origin');
+      refreshUnits(); // 대상 강조만 갱신
       return true;
     }
 
@@ -384,7 +392,7 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
     function onCardPointerDown(card, ev) {
       const p = stageCoords(ev.clientX, ev.clientY);
       lastMouse = p;
-      beginDrag(card, false, p.x, p.y);
+      beginDrag(card, false, p.x, p.y, ev);
     }
 
     // 전역 포인터 추적
@@ -426,8 +434,17 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
         <circle cx="${x}" cy="${y}" r="9" fill="#5fb6c9"/>`;
     }
 
+    // pointercancel(브라우저의 제스처 가로채기 등)·창 포커스 상실 시 드래그가 붕 뜨지 않게 정리
+    function onPointerCancel() {
+      if (drag) cancelDrag();
+      if (potionTarget) { potionTarget = null; arrowSvg.innerHTML = ''; }
+    }
+    function onWindowBlur() { onPointerCancel(); }
+
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointercancel', onPointerCancel);
+    window.addEventListener('blur', onWindowBlur);
     root.addEventListener('pointerdown', onStagePointerDown);
     root.addEventListener('contextmenu', (ev) => {
       if (drag || potionTarget) { ev.preventDefault(); potionTarget = null; cancelDrag(); }
@@ -531,6 +548,8 @@ export function runCombat(run, enemyIds, rng, kind = 'monster') {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('blur', onWindowBlur);
       await wait(600);
       run.hp = c.player.hp;
       resolve(c.over);

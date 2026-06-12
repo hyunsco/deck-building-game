@@ -22,7 +22,7 @@
     import { starterDeck, makeCard, rollRewardCards } from '../js/data/cards.js';
     import { generateMap } from '../js/map.js';
     import {
-      restScreen, endingScreen, actTransitionScreen, rewardsScreen, eventScreen, gameOverScreen,
+      restScreen, endingScreen, actTransitionScreen, rewardsScreen, eventScreen, gameOverScreen, shopScreen,
     } from '../js/screens.js';
     import { runCombat } from '../js/combatui.js';
     import { EVENTS } from '../js/data/events.js';
@@ -54,7 +54,8 @@
       case 'trans': actTransitionScreen(run); break;
       case 'gameover': gameOverScreen(run, false); break;
       case 'reward': rewardsScreen(run, { gold: 24, potion: 'firePotion', cards: rollRewardCards(rng, 'elite'), relic: 'hornCleat' }, '정예 격파!'); break;
-      case 'event': eventScreen(run, EVENTS[1], rng); break;
+      case 'event': eventScreen(run, EVENTS[Number(new URLSearchParams(location.search).get('i') || 1)], rng); break;
+      case 'shop': shopScreen(run, rng); break;
       case 'cards': cardGridOverlay('내 덱', run.deck, {}); break;
       case 'combat2': runCombat(run, ['centurion', 'mystic'], rng, 'monster'); break;
       case 'elite2': runCombat(run, ['gremlinNob', 'gremlinLeader'], rng, 'elite'); break;

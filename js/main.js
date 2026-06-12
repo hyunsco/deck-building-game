@@ -122,6 +122,7 @@ async function resolveNode(run, node, rng) {
       return 'ok';
     case 'shop':
       run.removedThisShop = false;
+      run.smithedThisShop = false;
       await shopScreen(run, rng);
       return 'ok';
     case 'treasure':
@@ -174,7 +175,9 @@ function maybeUpgradeRewards(run, rng, cards) {
 function combatRewards(run, rng, kind) {
   const rewards = {};
   rewards.gold = kind === 'elite' ? randInt(rng, 25, 35) : randInt(rng, 10, 20);
-  if (chance(rng, run.potionChance)) {
+  if (hasRelic(run, 'goldenDice')) rewards.gold = Math.ceil(rewards.gold * 1.4);
+  const potionBonus = hasRelic(run, 'herbPouch') ? 0.15 : 0;
+  if (chance(rng, run.potionChance + potionBonus)) {
     rewards.potion = rollPotion(rng);
     run.potionChance = Math.max(0.1, run.potionChance - 0.1);
   } else {

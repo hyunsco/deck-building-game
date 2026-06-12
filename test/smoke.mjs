@@ -255,6 +255,36 @@ section('mechanics');
   t.intent.apply(c, t);
   ok(t.hp === Math.floor(t.maxHp / 2), `time eater heals to half (${t.hp}/${t.maxHp})`);
 }
+// ===== 확장 유물 =====
+{
+  // 균열된 핵: 에너지 4 / 모래시계: 매 턴 방어 3 / 붉은 가면: 시작 시 약화
+  const run = freshRun();
+  run.relics = ['burningBlood', 'crackedCore', 'hourglass', 'redMask', 'monocle'];
+  const c = createCombat(run, ['cultist'], mulberry32(53), 'monster');
+  startCombat(c);
+  ok(c.player.energy === 4, `crackedCore grants 4 energy (got ${c.player.energy})`);
+  ok(c.player.block === 3, `hourglass grants 3 block at turn start (got ${c.player.block})`);
+  ok(c.enemies[0].statuses.weak === 1, 'redMask applies weak 1');
+  ok(c.hand.length === 6, `monocle draws +1 on first turn (got ${c.hand.length})`);
+  endPlayerTurn(c);
+  while (enemyTurnStep(c)) { /* drain */ }
+  finishEnemyPhase(c);
+  ok(c.player.energy === 4, 'crackedCore energy persists each turn');
+  ok(c.player.block === 3, 'hourglass block again on turn 2');
+}
+{
+  // 수호의 깃발: 정예 전투에서만 방어 12
+  const run = freshRun();
+  run.relics = ['burningBlood', 'guardBanner'];
+  const cN = createCombat(run, ['cultist'], mulberry32(59), 'monster');
+  startCombat(cN);
+  ok(cN.player.block === 0, 'guardBanner inactive in normal fights');
+  const run2 = freshRun();
+  run2.relics = ['burningBlood', 'guardBanner'];
+  const cE = createCombat(run2, ['gremlinNob'], mulberry32(61), 'elite');
+  startCombat(cE);
+  ok(cE.player.block === 12, `guardBanner grants 12 block vs elite (got ${cE.player.block})`);
+}
 
 // ============ 5. full random-play combat simulations (전 막) ============
 section('combat simulations (acts 1-3)');

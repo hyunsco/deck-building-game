@@ -22,7 +22,7 @@
     import { starterDeck, makeCard } from '../js/data/cards.js';
     import { generateMap } from '../js/map.js';
     import { runCombat } from '../js/combatui.js';
-    import { mapScreen } from '../js/screens.js';
+    import { mapScreen, restScreen } from '../js/screens.js';
     import { initTooltips } from '../js/ui.js';
 
     const report = [];
@@ -58,7 +58,7 @@
 
       // 2) map screen renders
       mapScreen(run);
-      setTimeout(() => {
+      setTimeout(async () => {
         const m = {
           nodes: document.querySelectorAll('.map-node').length,
           clickable: document.querySelectorAll('.map-node.clickable').length,
@@ -66,6 +66,35 @@
         };
         report.push('map ' + JSON.stringify(m));
         report.push(m.nodes > 30 && m.clickable >= 1 && m.edges > 30 ? 'MAP_OK' : 'MAP_BAD');
+        flush();
+
+        // 3) 휴식처 — 단련: 카드 선택 → 강화 미리보기 → 확정 플로우
+        const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+        restScreen(run);
+        await sleep2(300);
+        const smith = [...document.querySelectorAll('.rest-option')].find((b) => b.textContent.includes('단련'));
+        smith.click();
+        await sleep2(250);
+        const firstPick = document.querySelector('.card-grid .card.pickable');
+        const pickedUid = Number(firstPick.dataset.uid);
+        firstPick.click();
+        await sleep2(250);
+        const compareCards = document.querySelectorAll('.choice-row.compare .card');
+        const labels = document.querySelectorAll('.compare-label');
+        report.push(compareCards.length === 2 && labels.length === 2 ? 'UPGRADE_PREVIEW_OK' : 'UPGRADE_PREVIEW_BAD');
+        const before = run.deck.find((cd) => cd.uid === pickedUid);
+        report.push(!before.upgraded ? 'NOT_YET_UPGRADED_OK' : 'PREMATURE_UPGRADE_BAD');
+        // 취소 → 카드 그대로
+        [...document.querySelectorAll('.skip-btn')].find((b) => b.textContent === '취소').click();
+        await sleep2(250);
+        report.push(!before.upgraded ? 'CANCEL_KEEPS_CARD_OK' : 'CANCEL_BAD');
+        // 다시 선택 → 확정 → 강화됨
+        document.querySelector('.card-grid .card.pickable').click();
+        await sleep2(250);
+        [...document.querySelectorAll('.proceed-btn')].find((b) => b.textContent.includes('강화 확정')).click();
+        await sleep2(250);
+        const after = run.deck.find((cd) => cd.uid === pickedUid);
+        report.push(after.upgraded ? 'CONFIRM_UPGRADES_OK' : 'CONFIRM_BAD');
         flush();
       }, 300);
     }, 1200);

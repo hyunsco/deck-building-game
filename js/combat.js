@@ -85,13 +85,19 @@ export function hasRelic(run, id) { return run.relics.includes(id); }
 // ============ combat start / turn flow ============
 export function startCombat(c) {
   const { run, player: p } = c;
+  if (hasRelic(run, 'crackedCore')) p.maxEnergy = 4;
   if (hasRelic(run, 'anchor')) gainBlockRaw(c, 10);
+  if (hasRelic(run, 'guardBanner') && (c.kind === 'elite' || c.kind === 'boss')) gainBlockRaw(c, 12);
   if (hasRelic(run, 'vajra')) c.addPlayerStatus('str', 1);
   if (hasRelic(run, 'smoothStone')) c.addPlayerStatus('dex', 1);
   if (hasRelic(run, 'bronzeScales')) c.addPlayerStatus('thorns', 3);
+  if (hasRelic(run, 'thornArmor')) c.addPlayerStatus('thorns', 2);
   if (hasRelic(run, 'bloodVial')) healPlayer(c, 2);
   if (hasRelic(run, 'bagOfMarbles')) {
     for (const e of c.aliveEnemies()) c.applyEnemyDebuff(e, 'vuln', 1);
+  }
+  if (hasRelic(run, 'redMask')) {
+    for (const e of c.aliveEnemies()) c.applyEnemyDebuff(e, 'weak', 1);
   }
   for (const e of c.enemies) c.refreshIntent(e);
   beginPlayerTurn(c);
@@ -104,11 +110,17 @@ export function beginPlayerTurn(c) {
   c.enemyIdx = 0;
   c.attacksThisTurn = 0;
   c.cardsPlayedThisTurn = 0;
-  p.block = 0;
+  if (c.turn > 1) p.block = 0; // 1턴에는 전투 시작 효과(닻·수호의 깃발)의 방어도를 유지
   p.energy = p.maxEnergy + (c.turn === 1 && hasRelic(run, 'lantern') ? 1 : 0);
   if (p.statuses.demonForm) c.addPlayerStatus('str', p.statuses.demonForm);
   if (c.turn === 2 && hasRelic(run, 'hornCleat')) gainBlockRaw(c, 14);
-  drawCards(c, 5 + (c.turn === 1 && hasRelic(run, 'bagOfPrep') ? 2 : 0));
+  if (hasRelic(run, 'hourglass')) gainBlockRaw(c, 3);
+  let firstTurnDraw = 0;
+  if (c.turn === 1) {
+    if (hasRelic(run, 'bagOfPrep')) firstTurnDraw += 2;
+    if (hasRelic(run, 'monocle')) firstTurnDraw += 1;
+  }
+  drawCards(c, 5 + firstTurnDraw);
 }
 
 export function drawCards(c, n) {
